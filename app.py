@@ -14,12 +14,19 @@ import os
 # ==========================================
 st.set_page_config(page_title="Análise Caso a Caso RJAIA", page_icon="⚖️", layout="wide")
 
+# Inicialização de variáveis de estado
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
+if 'validation_result' not in st.session_state:
+    st.session_state.validation_result = None
+if 'decision_result' not in st.session_state:
+    st.session_state.decision_result = None
 
 def reset_app():
-    """Limpa os ficheiros ao incrementar a chave dos uploaders."""
+    """Limpa os resultados e reinicia os uploaders."""
     st.session_state.uploader_key += 1
+    st.session_state.validation_result = None
+    st.session_state.decision_result = None
 
 # ==========================================
 # --- SIDEBAR & SETUP ---
@@ -50,12 +57,10 @@ with st.sidebar:
             st.error(f"Erro: {e}")
 
     st.divider()
-    st.markdown("""
-    **Fluxo de Trabalho:**
-    1. **Triangulação:** Verifica a consistência dos dados.
-    2. **Decisão:** Gera a minuta (Anexo III) independentemente do resultado da validação.
-    3. **Técnico:** Decide se as incongruências são impeditivas ou negligenciáveis.
-    """)
+    # Botão de Reset Explícito na Sidebar
+    if st.button("🔄 Nova Análise / Limpar Tudo", use_container_width=True):
+        reset_app()
+        st.rerun()
 
 # ==========================================
 # --- INTERFACE ---
@@ -65,6 +70,7 @@ st.markdown("### Validação Técnica e Decisão")
 
 col1, col2, col3 = st.columns(3)
 
+# Usamos a key dinâmica para permitir a limpeza dos ficheiros
 with col1:
     st.info("📂 1. Simulação SILiAmb")
     files_sim = st.file_uploader("PDF Simulação", type=['pdf'], accept_multiple_files=True, key=f"up_sim_{st.session_state.uploader_key}")
@@ -96,7 +102,6 @@ def get_ai(prompt):
     model = genai.GenerativeModel(selected_model)
     return model.generate_content(prompt).text
 
-# --- PROMPT 1: VALIDAÇÃO ---
 def analyze_validation(t_sim, t_form, t_proj):
     return get_ai(f"""
     Atua como Auditor Técnico. Realiza uma TRIANGULAÇÃO DE DADOS entre:
@@ -116,7 +121,6 @@ def analyze_validation(t_sim, t_form, t_proj):
     - Se consistente: Inicia com "STATUS: VALIDADO". Resume os dados confirmados.
     """)
 
-# --- PROMPT 2: DECISÃO ---
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
     Atua como Entidade Licenciadora. Produz a MINUTA DE ANÁLISE CASO A CASO (DL 151-B/2013).
@@ -169,19 +173,16 @@ def create_decision_doc(text):
     style.font.name = 'Arial'
     style.font.size = Pt(10)
 
-    # Parser
     def get_tag(tag):
         m = re.search(f"### {tag}(.*?)###", text, re.DOTALL)
         if not m: m = re.search(f"### {tag}(.*)", text, re.DOTALL)
         return m.group(1).strip() if m else "N/A"
 
-    # Header
     h = doc.add_heading("ANÁLISE PRÉVIA E DECISÃO DE SUJEIÇÃO A AIA", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph("Regime Jurídico da Avaliação de Impacte Ambiental").alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph("")
 
-    # Tabela
     table = doc.add_table(rows=0, cols=2)
     table.style = 'Table Grid'
 
@@ -234,56 +235,63 @@ def create_decision_doc(text):
     return bio
 
 # ==========================================
-# --- EXECUÇÃO ---
+# --- MOTOR PRINCIPAL ---
 # ==========================================
 st.markdown("---")
-if st.button("🚀 Processar Documentos (Geração Dupla)", type="primary", use_container_width=True):
-    
+
+# Botão de Processamento
+if st.button("🚀 Processar Documentos", type="primary", use_container_width=True):
     if not (files_sim and files_form and files_doc):
         st.error("⚠️ Carregue documentos nas 3 caixas.")
     elif not api_key:
         st.error("⚠️ Insira a API Key.")
     else:
         with st.status("⚙️ A trabalhar...", expanded=True) as status:
-            # 1. Leitura
             st.write("📖 A ler ficheiros...")
             ts = extract_text(files_sim, "SIM")
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            # 2. IA - Validação
             st.write("🕵️ A validar consistência...")
-            res_val = analyze_validation(ts, tf, tp)
+            # GUARDAR NO SESSION STATE
+            st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            # 3. IA - Decisão (Corre sempre)
             st.write("⚖️ A redigir minuta de decisão...")
-            res_dec = generate_decision_text(ts, tf, tp)
+            # GUARDAR NO SESSION STATE
+            st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
-            status.update(label="✅ Concluído! Documentos prontos.", state="complete")
+            status.update(label="✅ Concluído!", state="complete")
 
-        # Apresentação dos resultados
-        st.success("Processo terminado. Descarregue os documentos abaixo.")
-        
-        c1, c2 = st.columns(2)
-        
-        # Botão 1: Relatório de Validação
-        f_val = create_validation_doc(res_val)
-        c1.download_button(
-            label="📄 1. Relatório de Validação",
-            data=f_val.getvalue(),
-            file_name="Relatorio_Validacao.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            help="Detalhe das incongruências detetadas (se existirem)."
-        )
-        
-        # Botão 2: Minuta de Decisão
-        f_dec = create_decision_doc(res_dec)
-        c2.download_button(
-            label="📝 2. Minuta de Decisão",
-            data=f_dec.getvalue(),
-            file_name="Proposta_Decisao.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            help="Proposta final de decisão caso a caso.",
-            on_click=reset_app # Limpa a app apenas quando se baixa a decisão final
-        )
+# ==========================================
+# --- ÁREA DE RESULTADOS (PERSISTENTE) ---
+# ==========================================
+
+# Verificamos se já existe resultado na memória. Se sim, mostramos os botões.
+if st.session_state.validation_result and st.session_state.decision_result:
+    
+    st.success("Documentos gerados e prontos para descarga.")
+    
+    c1, c2 = st.columns(2)
+    
+    # Geramos os Words on-the-fly com base no texto guardado na memória
+    f_val = create_validation_doc(st.session_state.validation_result)
+    c1.download_button(
+        label="📄 1. Relatório de Validação",
+        data=f_val.getvalue(),
+        file_name="Relatorio_Validacao.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        key="btn_down_val" # Key única para evitar conflitos
+    )
+    
+    f_dec = create_decision_doc(st.session_state.decision_result)
+    c2.download_button(
+        label="📝 2. Minuta de Decisão",
+        data=f_dec.getvalue(),
+        file_name="Proposta_Decisao.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        type="primary",
+        key="btn_down_dec" # Key única
+    )
+
+    st.markdown("---")
+    st.info("Para analisar um novo processo, clique no botão 'Nova Análise' na barra lateral.")
