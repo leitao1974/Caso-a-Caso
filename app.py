@@ -64,7 +64,7 @@ with st.sidebar:
 # ==========================================
 st.title("⚖️ Análise Caso a Caso (RJAIA)")
 st.markdown("### Auditoria Técnica e Decisão Fundamentada")
-st.caption("Modo Texto Corrido (Prosa Técnica com Citações)")
+st.caption("Modo: Síntese Rigorosa (Texto Corrido Denso)")
 
 col1, col2, col3 = st.columns(3)
 
@@ -129,7 +129,7 @@ def markdown_to_word(doc, text):
 # --- PROMPT 1: VALIDAÇÃO CRÍTICA ---
 def analyze_validation(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como um PERITO AUDITOR.
+    Atua como PERITO AUDITOR.
     
     FONTES DE DADOS:
     1. SIMULAÇÃO | 2. FORMULÁRIO | 3. PROJETO
@@ -150,16 +150,19 @@ def analyze_validation(t_sim, t_form, t_proj):
     4. "## 3. Alertas Técnicos"
     """)
 
-# --- PROMPT 2: DECISÃO (TEXTO CORRIDO E RIGOROSO) ---
+# --- PROMPT 2: DECISÃO (SINTÉTICA, RIGOROSA E CORRIDA) ---
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
     Atua como Técnico Superior da CCDR.
     Redige a minuta de decisão para um processo de Análise Caso a Caso (RJAIA).
 
-    ESTILO DE REDAÇÃO (IMPORTANTE):
-    1. **TEXTO CORRIDO (PROSA):** Não uses tópicos (bullets) nas células da tabela. Escreve parágrafos coesos e bem estruturados, com linguagem técnica e formal.
-    2. **RIGOR E RASTREABILIDADE:** Cita sempre a fonte e página dos dados técnicos entre parênteses. Ex: "...conforme indicado na Memória Descritiva (pág. 4)...".
-    3. **SÍNTESE:** Sê direto. Evita adjetivos vazios. Foca nos dados quantitativos.
+    ESTILO DE REDAÇÃO (SÍNTESE RIGOROSA):
+    1. **TEXTO CORRIDO DENSO:** Escreve parágrafos que fundem informação. Não uses tópicos/bullets.
+    2. **ZERO PALHA:** Elimina conectores vazios ("Relativamente a...", "No que concerne..."). Começa logo pelo sujeito/dado.
+    3. **RASTREABILIDADE:** Cita sempre a fonte/página abreviada: `(MD, pág. 4)`.
+
+    EXEMPLO DE ESTILO DESEJADO:
+    "A instalação prevê tratar 500 t/ano de VFV (MD, pág. 12), em área totalmente impermeabilizada de 200m2 (Peças Desenhadas, Doc. 3). Os efluentes passam por separador de hidrocarbonetos antes da descarga (Pág. 15), garantindo o cumprimento dos VLE."
 
     CONTEXTO:
     {t_proj[:150000]}
@@ -180,7 +183,7 @@ def generate_decision_text(t_sim, t_form, t_proj):
     (Freguesia/Concelho)
     
     ### CAMPO_AREAS_SENSIVEIS
-    (Frase completa sobre a localização face a áreas sensíveis)
+    (Frase única sobre a afetação)
     
     ### CAMPO_PROPONENTE
     (Nome/NIF)
@@ -192,28 +195,26 @@ def generate_decision_text(t_sim, t_form, t_proj):
     (Nome da autoridade)
 
     ### CAMPO_DESCRICAO
-    (Parágrafo de texto corrido descrevendo o objeto do licenciamento, localização, antecedentes administrativos e justificação do projeto.)
+    (Resumo em 1 parágrafo denso: objetivo, localização exata e operações principais.)
 
     ### CAMPO_CARATERISTICAS
-    (Texto corrido e denso. Deve abordar sequencialmente:
-     1. As quantidades de resíduos a gerir (discriminando perigosos/não perigosos e citando as páginas).
-     2. As capacidades instaladas vs instantâneas.
-     3. A infraestrutura física (áreas impermeabilizadas, coberta).
-     4. A gestão de efluentes (descrição do sistema de drenagem e tratamento).
-     Escreve de forma fluida, ligando as frases.)
+    (Parágrafos de texto corrido. Funde a informação quantitativa:
+     - Une quantidades de resíduos, tipologias e capacidades numa sequência lógica.
+     - Une descrição das infraestruturas (áreas, pavimentos) com a gestão de efluentes.
+     - Cita sempre as páginas.)
     
     ### CAMPO_LOCALIZACAO_PROJETO
-    (Texto corrido analisando a compatibilidade com o PDM e servidões administrativas. Cita a planta de ordenamento se possível.)
+    (1 ou 2 frases sobre compatibilidade com PDM e servidões, citando a planta analisada.)
     
     ### CAMPO_IMPACTES
-    (Texto corrido fundamentando a avaliação.
-     Descreve a magnitude dos impactes (Ar, Ruído, Solo) e justifica porque são ou não significativos, baseando-se nas medidas de projeto (ex: "A impermeabilização total garante a proteção do solo...").)
+    (Texto corrido sintético.
+     Ex: "Impactes no ar e ruído são pouco significativos dada a envolvente industrial. O risco de contaminação do solo é minimizado pela impermeabilização (MD, pág. 5) e sistema de tratamento proposto.")
 
     ### CAMPO_DECISAO
     (SUJEITO ou NÃO SUJEITO)
     
     ### CAMPO_CONDICIONANTES
-    (Lista numerada ou parágrafo com as obrigações técnicas essenciais.)
+    (Lista numerada compacta das obrigações essenciais.)
     """)
 
 # ==========================================
@@ -328,7 +329,7 @@ def create_decision_doc(text):
 # ==========================================
 st.markdown("---")
 
-if st.button("🚀 Iniciar Análise (Modo Texto Corrido)", type="primary", use_container_width=True):
+if st.button("🚀 Iniciar Análise Sintética", type="primary", use_container_width=True):
     if not (files_sim and files_form and files_doc):
         st.error("⚠️ Carregue documentos nas 3 caixas.")
     elif not api_key:
@@ -343,13 +344,13 @@ if st.button("🚀 Iniciar Análise (Modo Texto Corrido)", type="primary", use_c
             st.write("🕵️ A auditar conformidade...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            st.write("⚖️ A redigir fundamentação técnica...")
+            st.write("⚖️ A redigir decisão (Modo Síntese Rigorosa)...")
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
             status.update(label="✅ Concluído!", state="complete")
 
 if st.session_state.validation_result and st.session_state.decision_result:
-    st.success("Documentos gerados.")
+    st.success("Documentos prontos.")
     
     c1, c2 = st.columns(2)
     
@@ -364,9 +365,9 @@ if st.session_state.validation_result and st.session_state.decision_result:
     
     f_dec = create_decision_doc(st.session_state.decision_result)
     c2.download_button(
-        "📝 2. Decisão Fundamentada", 
+        "📝 2. Minuta de Decisão Sintética", 
         f_dec.getvalue(), 
-        "Proposta_Decisao_Texto.docx", 
+        "Proposta_Decisao_Sintetica.docx", 
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
         type="primary", 
         key="btn_dec"
