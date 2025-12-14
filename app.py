@@ -46,7 +46,6 @@ with st.sidebar:
             models = genai.list_models()
             valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
             if valid_models:
-                # O Flash é ideal pela janela de contexto grande (lê muitos PDFs)
                 idx = next((i for i, m in enumerate(valid_models) if 'flash' in m), 0)
                 selected_model = st.selectbox("Modelo IA:", valid_models, index=idx)
                 st.info("✅ Sistema Pronto")
@@ -65,7 +64,7 @@ with st.sidebar:
 # ==========================================
 st.title("⚖️ Análise Caso a Caso (RJAIA)")
 st.markdown("### Auditoria Técnica e Decisão Fundamentada")
-st.caption("O sistema analisará os documentos com rigor crítico, indicando a fonte (Pág. X) de cada dado relevante.")
+st.caption("Modo Sintético e Rigoroso (Citação de Fontes Ativa)")
 
 col1, col2, col3 = st.columns(3)
 
@@ -91,10 +90,8 @@ def extract_text(files, label):
     for f in files:
         try:
             r = PdfReader(f)
-            # ADICIONAMOS O NOME DO FICHEIRO PARA CITAÇÃO
             text += f"\n\n>>> FONTE: {label} ({f.name}) <<<\n" 
             for i, p in enumerate(r.pages):
-                # ADICIONAMOS O NÚMERO DA PÁGINA PARA CITAÇÃO
                 text += f"[Pág. {i+1}] {p.extract_text()}\n"
         except: pass
     return text
@@ -132,49 +129,46 @@ def markdown_to_word(doc, text):
 # --- PROMPT 1: VALIDAÇÃO CRÍTICA ---
 def analyze_validation(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como um PERITO AUDITOR AMBIENTAL (Rigoroso e Cético).
-    
-    A tua missão não é apenas "validar", é "AUDITAR". Procura ativamente discrepâncias escondidas.
+    Atua como um PERITO AUDITOR.
     
     FONTES DE DADOS:
-    1. SIMULAÇÃO SILiAmb (Teórico)
-    2. FORMULÁRIO (Declarativo)
-    3. PROJETO TÉCNICO (Realidade descrita)
+    1. SIMULAÇÃO | 2. FORMULÁRIO | 3. PROJETO
     
-    TEXTO DOS DOCUMENTOS:
+    DADOS:
     {t_sim[:30000]}
     {t_form[:30000]}
     {t_proj[:100000]}
 
-    INSTRUÇÕES DE AUDITORIA:
-    1. Compara os valores numéricos exatos (Áreas m2, Toneladas/ano, Capacidades). 
-    2. Se encontrares uma diferença, reporta-a indicando a fonte e a página. Ex: "Formulário diz 100t (Pág. 2) mas Memória diz 150t (Pág. 14)".
-    3. Verifica se os códigos LER e operações R/D coincidem em todos os documentos.
+    TAREFA:
+    Audita a consistência de números (Áreas, Toneladas, Capacidades) e códigos LER/CAE.
+    Se encontrares discrepâncias, reporta com a página: "Formulário diz X (Pág. 2) mas Projeto diz Y (Pág. 14)".
     
-    OUTPUT OBRIGATÓRIO (Markdown):
+    OUTPUT (Markdown):
     1. "STATUS: [VALIDADO ou INCONSISTENTE]"
-    2. "## 1. Resumo da Auditoria"
-    3. "## 2. Tabela de Incongruências" (Se houver, com CITAÇÃO DE PÁGINAS)
-    4. "## 3. Pontos de Atenção Técnica" (Alertas sobre omissões técnicas, mesmo que os números batam certo).
+    2. "## 1. Resumo"
+    3. "## 2. Incongruências Detetadas" (Se houver)
+    4. "## 3. Alertas Técnicos"
     """)
 
-# --- PROMPT 2: DECISÃO FUNDAMENTADA (COM CITAÇÕES) ---
+# --- PROMPT 2: DECISÃO (SINTÉTICA E RIGOROSA) ---
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como Técnico Superior da CCDR com perfil de ANÁLISE CRÍTICA.
-    O teu objetivo é produzir a minuta de decisão, mas com uma FUNDAMENTAÇÃO ROBUSTA e baseada em evidências.
+    Atua como Técnico Superior da CCDR.
+    Redige a minuta de decisão.
 
-    REGRA DE OURO: Sempre que apresentares um dado técnico (áreas, caudais, tipologia, classes de solo, gestão de resíduos), DEVES INDICAR A FONTE E A PÁGINA entre parênteses.
-    Exemplo: "...prevê-se a impermeabilização de 2500 m2 (Memória Descritiva, pág. 12), o que contraria o PDM..."
+    PRINCÍPIOS DE REDAÇÃO (CRUCIAL):
+    1. **SÍNTESE EXTREMA:** Usa frases curtas. Vai direto ao número/facto. Evita texto "palha".
+    2. **RIGOR:** Cita sempre a fonte e página dos dados técnicos. Ex: (MD, pág. 4).
+    3. **ESTRUTURA:** Nas secções de "Caraterísticas" e "Impactes", usa parágrafos curtos ou semi-tópicos para densidade de informação.
 
     CONTEXTO:
     {t_proj[:150000]}
     {t_form[:30000]}
 
-    PREENCHE AS TAGS PARA A MINUTA (Sê detalhado e cita as fontes):
+    PREENCHE AS TAGS:
 
     ### CAMPO_DESIGNACAO
-    (Nome rigoroso do projeto)
+    (Nome do projeto)
     
     ### CAMPO_TIPOLOGIA
     (Referência legal exata)
@@ -186,7 +180,7 @@ def generate_decision_text(t_sim, t_form, t_proj):
     (Freguesia/Concelho)
     
     ### CAMPO_AREAS_SENSIVEIS
-    (Verifica se afeta RAN, REN ou Rede Natura. Cita a planta de condicionantes se referida no texto)
+    (Sim/Não e qual a alínea afetada, se houver)
     
     ### CAMPO_PROPONENTE
     (Nome/NIF)
@@ -198,31 +192,32 @@ def generate_decision_text(t_sim, t_form, t_proj):
     (Nome da autoridade)
 
     ### CAMPO_DESCRICAO
-    (Descrição técnica densa. Não uses linguagem genérica.
-     - Indica as áreas exatas de construção/demolição com citação de página.
-     - Descreve o processo industrial/operação de resíduos.
-     - Menciona licenças anteriores se existirem no texto.)
+    (Resumo do pedido: Localização, tipo de obra/operação e objetivo. Máximo 1 parágrafo denso.)
 
     ### CAMPO_CARATERISTICAS
-    (Esta é a parte mais importante. Sê ousado na análise técnica:
-     - Quantifica tudo (Ton/ano, m3/dia) citando as páginas.
-     - Analisa a "acumulação com outros projetos" (ex: existem outras indústrias vizinhas referidas?).
-     - Analisa a produção de resíduos e efluentes. Os separadores de hidrocarbonetos são adequados? O poço absorvente é legal? Cita onde isso está escrito.)
+    (Foca nos DADOS QUANTITATIVOS. Sê telegráfico mas completo. Cita páginas.
+     Exemplo:
+     - Gestão de Resíduos: Prevê-se tratar X t/ano, sendo Y t de perigosos (MD, pág. 10). Capacidade instalada de Z t/ano.
+     - Recursos Hídricos: Abastecimento via rede pública. Efluentes pluviais encaminhados a separador de hidrocarbonetos (Cap. 5, pág. 22).
+     - Construção: Área de impermeabilização de X m2. Sem novas construções (Peças Desenhadas, pág. 3).)
     
     ### CAMPO_LOCALIZACAO_PROJETO
-    (Cruza com o PDM. O uso do solo é compatível? A zona é sensível? Cita a planta de ordenamento se mencionada.)
+    (Compatibilidade com PDM e Servidões.
+     Exemplo:
+     Zona classificada como "Espaços Industriais" no PDM de Leiria. Uso compatível (Planta Ordenamento). Não afeta REN/RAN.)
     
     ### CAMPO_IMPACTES
-    (Não digas apenas "pouco significativo". Fundamenta.
-     - Avalia ruído, qualidade do ar e solos.
-     - Critica a avaliação feita pelo proponente se ela for superficial.
-     - Conclui sobre a magnitude e reversibilidade.)
+    (Avaliação concisa por fator.
+     Exemplo:
+     - Ar/Ruído: Impactes pouco significativos dada a envolvente industrial e distância a recetores sensíveis (>200m).
+     - Solo/Água: Risco minimizado pela impermeabilização total do recinto (MD, pág. 8) e rede de drenagem com tratamento prévio.
+     - Cumulativos: Não se preveem efeitos cumulativos relevantes com a atividade existente.)
 
     ### CAMPO_DECISAO
     (SUJEITO ou NÃO SUJEITO)
     
     ### CAMPO_CONDICIONANTES
-    (Lista medidas técnicas concretas e exigentes para garantir que o "Não Sujeito" é seguro. Ex: "Apresentar comprovativo de ligação à rede...").
+    (Lista de obrigações técnicas essenciais.)
     """)
 
 # ==========================================
@@ -233,10 +228,10 @@ def create_validation_doc(text):
     doc = Document()
     
     section = doc.sections[0]
-    section.header.paragraphs[0].text = "Relatório de Auditoria Técnica (Pré-Análise)"
+    section.header.paragraphs[0].text = "Relatório de Auditoria Técnica"
     section.header.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    doc.add_heading("Auditoria de Conformidade e Rastreabilidade", 0)
+    doc.add_heading("Auditoria de Conformidade", 0)
     doc.add_paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y')}")
 
     if "INCONSISTENTE" in text.upper():
@@ -267,12 +262,10 @@ def create_decision_doc(text):
         if not m: m = re.search(f"### {tag}(.*)", text, re.DOTALL)
         return m.group(1).strip() if m else "A preencher"
 
-    # Título Institucional
     h = doc.add_heading("Análise prévia e decisão de sujeição a AIA", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph("")
 
-    # Tabela
     table = doc.add_table(rows=0, cols=2)
     table.style = 'Table Grid'
 
@@ -296,7 +289,7 @@ def create_decision_doc(text):
         c.merge(r.cells[1])
         c.text = content
 
-    # 1. Identificação
+    # Preenchimento da Tabela
     add_section_header("Identificação")
     add_field_row("Designação do projeto", get_tag("CAMPO_DESIGNACAO"))
     add_field_row("Tipologia de Projeto", get_tag("CAMPO_TIPOLOGIA"))
@@ -307,16 +300,13 @@ def create_decision_doc(text):
     add_field_row("Entidade Licenciadora", get_tag("CAMPO_ENTIDADE_LICENCIADORA"))
     add_field_row("Autoridade de AIA", get_tag("CAMPO_AUTORIDADE_AIA"))
 
-    # 2. Descrição
     add_full_text_section("Breve descrição do projeto", get_tag("CAMPO_DESCRICAO"))
 
-    # 3. Fundamentação (Onde a IA deve ser ousada e citar fontes)
     add_section_header("Fundamentação da decisão")
     add_field_row("Caraterísticas do projeto", get_tag("CAMPO_CARATERISTICAS"))
     add_field_row("Localização do projeto", get_tag("CAMPO_LOCALIZACAO_PROJETO"))
     add_field_row("Características do impacte potencial", get_tag("CAMPO_IMPACTES"))
 
-    # 4. Decisão
     add_section_header("Decisão")
     r = table.add_row()
     c = r.cells[0]
@@ -324,10 +314,8 @@ def create_decision_doc(text):
     run = c.paragraphs[0].add_run(get_tag("CAMPO_DECISAO"))
     run.bold = True; run.font.size = Pt(11)
 
-    # 5. Condicionantes
     add_full_text_section("Condicionantes a impor em sede de licenciamento", get_tag("CAMPO_CONDICIONANTES"))
 
-    # Assinatura
     doc.add_paragraph("\n")
     sig_table = doc.add_table(rows=1, cols=2)
     sig_table.allow_autofit = True
@@ -346,34 +334,34 @@ def create_decision_doc(text):
 # ==========================================
 st.markdown("---")
 
-if st.button("🚀 Iniciar Auditoria Técnica", type="primary", use_container_width=True):
+if st.button("🚀 Iniciar Análise Sintética", type="primary", use_container_width=True):
     if not (files_sim and files_form and files_doc):
         st.error("⚠️ Carregue documentos nas 3 caixas.")
     elif not api_key:
         st.error("⚠️ Insira a API Key.")
     else:
-        with st.status("⚙️ A processar com análise crítica...", expanded=True) as status:
-            st.write("📖 A indexar páginas e referências...")
+        with st.status("⚙️ A processar...", expanded=True) as status:
+            st.write("📖 A ler e indexar...")
             ts = extract_text(files_sim, "SIM")
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            st.write("🕵️ A auditar consistência e rastrear fontes...")
+            st.write("🕵️ A validar conformidade...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            st.write("⚖️ A fundamentar decisão com referências técnicas...")
+            st.write("⚖️ A sintetizar decisão técnica...")
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
-            status.update(label="✅ Análise Concluída!", state="complete")
+            status.update(label="✅ Concluído!", state="complete")
 
 if st.session_state.validation_result and st.session_state.decision_result:
-    st.success("Resultados gerados.")
+    st.success("Documentos gerados.")
     
     c1, c2 = st.columns(2)
     
     f_val = create_validation_doc(st.session_state.validation_result)
     c1.download_button(
-        "📄 1. Relatório de Auditoria", 
+        "📄 1. Auditoria Técnica", 
         f_val.getvalue(), 
         "Relatorio_Auditoria.docx", 
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
@@ -382,10 +370,10 @@ if st.session_state.validation_result and st.session_state.decision_result:
     
     f_dec = create_decision_doc(st.session_state.decision_result)
     c2.download_button(
-        "📝 2. Minuta de Decisão Fundamentada", 
+        "📝 2. Decisão Fundamentada", 
         f_dec.getvalue(), 
-        "Proposta_Decisao_Tecnica.docx", 
+        "Proposta_Decisao_Sintetica.docx", 
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
         type="primary", 
         key="btn_dec"
-        )
+    )
