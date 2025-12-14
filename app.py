@@ -1,7 +1,7 @@
 import streamlit as st
 from pypdf import PdfReader
 from docx import Document
-from docx.shared import Pt, RGBColor, Inches
+from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import google.generativeai as genai
 import io
@@ -14,7 +14,6 @@ import os
 # ==========================================
 st.set_page_config(page_title="Análise Caso a Caso RJAIA", page_icon="⚖️", layout="wide")
 
-# Inicialização de variáveis de estado
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'validation_result' not in st.session_state:
@@ -23,7 +22,6 @@ if 'decision_result' not in st.session_state:
     st.session_state.decision_result = None
 
 def reset_app():
-    """Limpa os resultados e reinicia os uploaders."""
     st.session_state.uploader_key += 1
     st.session_state.validation_result = None
     st.session_state.decision_result = None
@@ -34,7 +32,6 @@ def reset_app():
 with st.sidebar:
     st.header("🔐 Configuração")
     
-    # Tenta ler dos secrets ou pede input
     if "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
         st.success("Chave API detetada!")
@@ -70,7 +67,6 @@ st.markdown("### Validação Técnica e Decisão")
 
 col1, col2, col3 = st.columns(3)
 
-# Chaves dinâmicas para permitir limpeza
 with col1:
     st.info("📂 1. Simulação SILiAmb")
     files_sim = st.file_uploader("PDF Simulação", type=['pdf'], accept_multiple_files=True, key=f"up_sim_{st.session_state.uploader_key}")
@@ -84,7 +80,7 @@ with col3:
     files_doc = st.file_uploader("Peças Escritas", type=['pdf'], accept_multiple_files=True, key=f"up_doc_{st.session_state.uploader_key}")
 
 # ==========================================
-# --- FUNÇÕES DE AUXÍLIO ---
+# --- FUNÇÕES ---
 # ==========================================
 
 def extract_text(files, label):
@@ -102,62 +98,36 @@ def get_ai(prompt):
     model = genai.GenerativeModel(selected_model)
     return model.generate_content(prompt).text
 
-# --- FORMATADOR INTELIGENTE (MARKDOWN -> WORD) ---
 def markdown_to_word(doc, text):
-    """
-    Converte texto Markdown simples (Headers ##, Bullets -, Bold **) em estilos Word.
-    Torna o relatório muito mais legível.
-    """
     lines = text.split('\n')
-    
     for line in lines:
         line = line.strip()
         if not line: continue
-        
-        # 1. Títulos (##)
         if line.startswith('##'):
-            clean_text = line.replace('#', '').strip()
-            doc.add_heading(clean_text, level=2)
-        
-        # 2. Títulos Menores (###)
+            doc.add_heading(line.replace('#', '').strip(), level=2)
         elif line.startswith('###'):
-            clean_text = line.replace('#', '').strip()
-            doc.add_heading(clean_text, level=3)
-            
-        # 3. Listas (Bullets)
+            doc.add_heading(line.replace('#', '').strip(), level=3)
         elif line.startswith('- ') or line.startswith('* '):
-            clean_text = line[2:].strip()
             p = doc.add_paragraph(style='List Bullet')
-            # Aplica negrito se houver **texto**
-            parts = re.split(r'(\*\*.*?\*\*)', clean_text)
+            parts = re.split(r'(\*\*.*?\*\*)', line[2:])
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
-                    run = p.add_run(part[2:-2])
-                    run.bold = True
+                    p.add_run(part[2:-2]).bold = True
                 else:
                     p.add_run(part)
-                    
-        # 4. Texto Normal
         else:
             p = doc.add_paragraph()
-            # Aplica negrito se houver **texto**
             parts = re.split(r'(\*\*.*?\*\*)', line)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
-                    run = p.add_run(part[2:-2])
-                    run.bold = True
+                    p.add_run(part[2:-2]).bold = True
                 else:
                     p.add_run(part)
 
-# ==========================================
-# --- PROMPTS DA IA ---
-# ==========================================
-
+# --- PROMPT 1: VALIDAÇÃO ---
 def analyze_validation(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como Auditor Técnico Sénior. A tua tarefa é criar um RELATÓRIO DE INCONGRUÊNCIAS legível e estruturado.
-    
-    Realiza uma TRIANGULAÇÃO DE DADOS rigorosa entre:
+    Atua como Auditor Técnico. Realiza uma TRIANGULAÇÃO DE DADOS entre:
     1. SIMULAÇÃO | 2. FORMULÁRIO | 3. PROJETO
     
     DADOS:
@@ -166,93 +136,95 @@ def analyze_validation(t_sim, t_form, t_proj):
     [PROJETO]: {t_proj[:100000]}
 
     TAREFA:
-    Verifica: Identificação, Localização, CAEs, Áreas (Implantação/Total), Capacidades.
+    Verifica consistência de: Identificação, Localização, CAEs, Áreas, Capacidades.
     
-    ESTRUTURA OBRIGATÓRIA DA RESPOSTA (Usa Markdown):
-    
-    1. Começa com uma linha contendo apenas: "STATUS: [VALIDADO ou INCONSISTENTE]"
-    
-    2. Cria uma secção: "## 1. Resumo Executivo"
-       - Resume em 2 linhas se o processo está apto ou tem falhas graves.
-    
-    3. Cria uma secção: "## 2. Análise de Consistência"
-       - Usa uma lista (bullet points) para cada parâmetro analisado.
-       - Se houver erro, escreve: "- **[PARÂMETRO]**: ❌ Inconsistente. (Simulação: X | Projeto: Y)"
-       - Se estiver correto, escreve: "- **[PARÂMETRO]**: ✅ Validado."
-    
-    4. Cria uma secção: "## 3. Detalhe das Incongruências" (Apenas se existirem)
-       - Explica porque é que a diferença é relevante ou se pode ser erro de arredondamento.
-    
-    Nota: Sê direto e claro. Usa formatação Markdown (negrito **texto**, listas - item, titulos ##).
+    SAÍDA (Markdown):
+    1. "STATUS: [VALIDADO ou INCONSISTENTE]"
+    2. "## 1. Resumo Executivo"
+    3. "## 2. Análise de Consistência" (Checklist com ✅ ou ❌)
+    4. "## 3. Detalhe" (Se houver erros)
     """)
 
+# --- PROMPT 2: DECISÃO (Atualizado para coincidir com o Modelo) ---
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
     Atua como Entidade Licenciadora. Produz a MINUTA DE ANÁLISE CASO A CASO (DL 151-B/2013).
-    Usa o texto do PROJETO como fonte principal.
+    Usa os dados do PROJETO e FORMULÁRIO.
 
     CONTEXTO:
     {t_proj[:120000]}
     {t_form[:30000]}
 
-    Preenche as tags abaixo (não mudes os nomes das tags):
+    Preenche as tags abaixo EXATAMENTE como pedido:
+
     ### CAMPO_DESIGNACAO
-    ### CAMPO_TIPOLOGIA (Anexo, Ponto, Alínea)
+    (Nome do projeto)
+    
+    ### CAMPO_TIPOLOGIA
+    (Apenas a tipologia do projeto, ex: Indústria de...)
+    
+    ### CAMPO_ENQUADRAMENTO
+    (O enquadramento legal: Anexo, Ponto, Alínea do RJAIA e se é sub-limiar)
+    
     ### CAMPO_LOCALIZACAO
+    (Freguesia e Concelho. Ex: União de Freguesias de X, Concelho de Y)
+    
     ### CAMPO_AREAS_SENSIVEIS
+    (Sim ou Não. Se Sim, indica qual a alínea a) do artigo 2º do RJAIA afetada)
+    
     ### CAMPO_PROPONENTE
-    ### CAMPO_DESCRICAO (Resumo claro)
-    ### CAMPO_FUNDAMENTACAO_CARATERISTICAS (Anexo III)
-    ### CAMPO_FUNDAMENTACAO_LOCALIZACAO (Anexo III)
-    ### CAMPO_FUNDAMENTACAO_IMPACTES (Anexo III)
-    ### CAMPO_DECISAO ("SUJEITO A AIA" ou "NÃO SUJEITO A AIA")
-    ### CAMPO_CONDICIONANTES (Lista bullet points)
+    (Nome e NIF)
+    
+    ### CAMPO_ENTIDADE_LICENCIADORA
+    (Identifica a entidade licenciadora se constar nos docs, senão escreve "A preencher")
+    
+    ### CAMPO_AUTORIDADE_AIA
+    (Identifica a autoridade de AIA, ex: CCDR Centro, APA, ou "A preencher")
+
+    ### CAMPO_DESCRICAO
+    (Breve descrição do projeto: o que é, objetivos e dimensões principais)
+
+    ### CAMPO_CARATERISTICAS
+    (Fundamentação Anexo III: Dimensão, cumulação, recursos, resíduos, poluição)
+    
+    ### CAMPO_LOCALIZACAO_PROJETO
+    (Fundamentação Anexo III: Uso atual do solo, capacidade de carga, áreas protegidas)
+    
+    ### CAMPO_IMPACTES
+    (Fundamentação Anexo III: Extensão, magnitude, probabilidade, duração)
+
+    ### CAMPO_DECISAO
+    (Apenas: "SUJEITO A AIA" ou "NÃO SUJEITO A AIA")
+    
+    ### CAMPO_CONDICIONANTES
+    (Lista de medidas a impor no licenciamento)
     """)
 
 # ==========================================
-# --- GERADORES DE WORD ---
+# --- WORD GENERATORS ---
 # ==========================================
 
 def create_validation_doc(text):
     doc = Document()
     
-    # Cabeçalho Institucional Simples
     section = doc.sections[0]
-    header = section.header
-    p_head = header.paragraphs[0]
-    p_head.text = "Relatório de Validação Técnica - RJAIA"
-    p_head.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    section.header.paragraphs[0].text = "Relatório de Validação Técnica"
+    section.header.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    # Título Principal
-    title = doc.add_heading("Relatório de Incongruências e Validação", 0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    doc.add_paragraph(f"Data da Análise: {datetime.now().strftime('%d/%m/%Y')}\n").alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_heading("Relatório de Incongruências e Validação", 0)
+    doc.add_paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y')}")
 
-    # Caixa de Status Colorida
-    status_paragraph = doc.add_paragraph()
-    if "STATUS: INCONSISTENTE" in text.upper() or "STATUS: ALERTA" in text.upper():
-        runner = status_paragraph.add_run("⚠️ PARECER: EXISTEM INCONGRUÊNCIAS A VERIFICAR")
-        runner.bold = True
-        runner.font.color.rgb = RGBColor(255, 0, 0) # Vermelho
-        runner.font.size = Pt(14)
+    if "INCONSISTENTE" in text.upper() or "ALERTA" in text.upper():
+        p = doc.add_paragraph("⚠️ PARECER: EXISTEM INCONGRUÊNCIAS")
+        p.runs[0].font.color.rgb = RGBColor(255, 0, 0)
     else:
-        runner = status_paragraph.add_run("✅ PARECER: PROCESSO CONSISTENTE")
-        runner.bold = True
-        runner.font.color.rgb = RGBColor(0, 150, 0) # Verde
-        runner.font.size = Pt(14)
-    status_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p = doc.add_paragraph("✅ PARECER: PROCESSO CONSISTENTE")
+        p.runs[0].font.color.rgb = RGBColor(0, 128, 0)
+    p.runs[0].bold = True
     
-    doc.add_paragraph("---") # Linha separadora
-
-    # Usa o parser inteligente para formatar o corpo do texto
-    # Remove a primeira linha de status do corpo para não duplicar
-    clean_body = re.sub(r'STATUS:.*', '', text, count=1).strip()
-    markdown_to_word(doc, clean_body)
-
-    # Rodapé
-    footer = section.footer
-    p_foot = footer.paragraphs[0]
-    p_foot.text = "Documento gerado automaticamente por IA. A validação final cabe ao técnico responsável."
+    doc.add_paragraph("---")
+    clean_text = re.sub(r'STATUS:.*', '', text, count=1).strip()
+    markdown_to_word(doc, clean_text)
     
     bio = io.BytesIO()
     doc.save(bio)
@@ -264,62 +236,84 @@ def create_decision_doc(text):
     style.font.name = 'Arial'
     style.font.size = Pt(10)
 
+    # Função auxiliar para extrair tags
     def get_tag(tag):
         m = re.search(f"### {tag}(.*?)###", text, re.DOTALL)
         if not m: m = re.search(f"### {tag}(.*)", text, re.DOTALL)
-        return m.group(1).strip() if m else "N/A"
+        return m.group(1).strip() if m else ""
 
-    h = doc.add_heading("ANÁLISE PRÉVIA E DECISÃO DE SUJEIÇÃO A AIA", 0)
+    # Título do Documento
+    # Nota: O modelo original tem logos da CCDR, aqui usamos texto simples
+    h = doc.add_heading("Análise prévia e decisão de sujeição a AIA", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    doc.add_paragraph("Regime Jurídico da Avaliação de Impacte Ambiental").alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph("")
 
+    # Tabela Principal
     table = doc.add_table(rows=0, cols=2)
     table.style = 'Table Grid'
 
-    def add_merged(txt, bold=False):
+    # Funções para adicionar linhas conforme o modelo
+    def add_merged_header(txt):
         r = table.add_row()
         c = r.cells[0]
         c.merge(r.cells[1])
-        run = c.paragraphs[0].add_run(txt)
-        if bold: run.bold = True
+        # Fundo cinza ou destaque se necessário, aqui apenas negrito
+        p = c.paragraphs[0]
+        run = p.add_run(txt)
+        run.bold = True
+        return r
 
-    def add_row(k, v):
+    def add_row(label, value):
         r = table.add_row()
-        r.cells[0].paragraphs[0].add_run(k).bold = True
-        r.cells[1].text = v
+        r.cells[0].paragraphs[0].add_run(label).bold = True
+        r.cells[1].text = value
 
-    add_merged("IDENTIFICAÇÃO", True)
-    add_row("Designação", get_tag("CAMPO_DESIGNACAO"))
-    add_row("Tipologia", get_tag("CAMPO_TIPOLOGIA"))
-    add_row("Localização", get_tag("CAMPO_LOCALIZACAO"))
-    add_row("Áreas Sensíveis", get_tag("CAMPO_AREAS_SENSIVEIS"))
+    # 1. Identificação
+    add_merged_header("Identificação")
+    add_row("Designação do projeto", get_tag("CAMPO_DESIGNACAO"))
+    add_row("Tipologia de Projeto", get_tag("CAMPO_TIPOLOGIA"))
+    add_row("Enquadramento no RJAIA", get_tag("CAMPO_ENQUADRAMENTO"))
+    add_row("Localização (freguesia e concelho)", get_tag("CAMPO_LOCALIZACAO"))
+    add_row("Afetação de áreas sensíveis (alínea a) do artigo 2º do RJAIA)", get_tag("CAMPO_AREAS_SENSIVEIS"))
     add_row("Proponente", get_tag("CAMPO_PROPONENTE"))
+    add_row("Entidade Licenciadora", get_tag("CAMPO_ENTIDADE_LICENCIADORA"))
+    add_row("Autoridade de AIA", get_tag("CAMPO_AUTORIDADE_AIA"))
 
-    add_merged("DESCRIÇÃO", True)
-    add_merged(get_tag("CAMPO_DESCRICAO"))
+    # 2. Breve Descrição
+    add_merged_header("Breve descrição do projeto")
+    r = table.add_row()
+    r.cells[0].merge(r.cells[1])
+    r.cells[0].text = get_tag("CAMPO_DESCRICAO")
 
-    add_merged("FUNDAMENTAÇÃO (ANEXO III)", True)
-    add_row("Caraterísticas", get_tag("CAMPO_FUNDAMENTACAO_CARATERISTICAS"))
-    add_row("Localização", get_tag("CAMPO_FUNDAMENTACAO_LOCALIZACAO"))
-    add_row("Impactes", get_tag("CAMPO_FUNDAMENTACAO_IMPACTES"))
+    # 3. Fundamentação
+    add_merged_header("Fundamentação da decisão")
+    add_row("Caraterísticas do projeto", get_tag("CAMPO_CARATERISTICAS"))
+    add_row("Localização do projeto", get_tag("CAMPO_LOCALIZACAO_PROJETO"))
+    add_row("Características do impacte potencial", get_tag("CAMPO_IMPACTES"))
 
+    # 4. Decisão
+    add_merged_header("Decisão")
     r = table.add_row()
     c = r.cells[0]
     c.merge(r.cells[1])
-    c.text = "DECISÃO"
-    c.paragraphs[0].runs[0].bold = True
+    decision_text = get_tag("CAMPO_DECISAO")
+    run = c.paragraphs[0].add_run(decision_text)
+    run.bold = True
+    run.font.size = Pt(12)
     
+    # 5. Condicionantes
+    add_merged_header("Condicionantes a impor em sede de licenciamento")
     r = table.add_row()
     c = r.cells[0]
     c.merge(r.cells[1])
-    run = c.paragraphs[0].add_run(get_tag("CAMPO_DECISAO"))
-    run.bold = True; run.font.size = Pt(12)
+    c.text = get_tag("CAMPO_CONDICIONANTES")
 
-    add_merged("CONDICIONANTES", True)
-    add_merged(get_tag("CAMPO_CONDICIONANTES"))
-
-    doc.add_paragraph("\n\nO Técnico,\n_______________________").alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Assinatura
+    doc.add_paragraph("\n\n")
+    sig_table = doc.add_table(rows=1, cols=2)
+    sig_table.rows[0].cells[0].text = "Data: " + datetime.now().strftime('%d/%m/%Y')
+    sig_table.rows[0].cells[1].text = "O Técnico,\n_______________________"
+    sig_table.rows[0].cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     bio = io.BytesIO()
     doc.save(bio)
@@ -342,43 +336,20 @@ if st.button("🚀 Processar Documentos", type="primary", use_container_width=Tr
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            st.write("🕵️ A analisar consistência (Triangulação)...")
+            st.write("🕵️ Validação Técnica...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            st.write("⚖️ A redigir minuta de decisão...")
+            st.write("⚖️ Minuta de Decisão...")
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
             status.update(label="✅ Concluído!", state="complete")
 
-# ==========================================
-# --- ÁREA DE DOWNLOADS ---
-# ==========================================
 if st.session_state.validation_result and st.session_state.decision_result:
-    
-    st.success("Análise concluída com sucesso.")
-    st.markdown("### 📥 Descarregar Resultados")
-    
+    st.success("Análise concluída.")
     c1, c2 = st.columns(2)
     
-    # Documento 1: Relatório de Validação (Melhorado)
     f_val = create_validation_doc(st.session_state.validation_result)
-    c1.download_button(
-        label="📄 1. Relatório de Validação",
-        data=f_val.getvalue(),
-        file_name="Relatorio_Incongruencias.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        key="btn_val",
-        help="Relatório detalhado com lista de conformidades e disparidades."
-    )
+    c1.download_button("📄 1. Relatório de Validação", f_val.getvalue(), "Relatorio_Validacao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="btn_val")
     
-    # Documento 2: Minuta de Decisão
     f_dec = create_decision_doc(st.session_state.decision_result)
-    c2.download_button(
-        label="📝 2. Minuta de Decisão",
-        data=f_dec.getvalue(),
-        file_name="Proposta_Decisao.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        type="primary",
-        key="btn_dec",
-        help="Minuta preenchida pronta a editar."
-    )
+    c2.download_button("📝 2. Minuta de Decisão", f_dec.getvalue(), "Proposta_Decisao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary", key="btn_dec")
