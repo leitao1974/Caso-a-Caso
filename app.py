@@ -64,7 +64,7 @@ with st.sidebar:
 # ==========================================
 st.title("⚖️ Análise Caso a Caso (RJAIA)")
 st.markdown("### Auditoria Técnica e Decisão Fundamentada")
-st.caption("Modo Sintético e Rigoroso (Citação de Fontes Ativa)")
+st.caption("Modo Texto Corrido (Prosa Técnica com Citações)")
 
 col1, col2, col3 = st.columns(3)
 
@@ -150,22 +150,22 @@ def analyze_validation(t_sim, t_form, t_proj):
     4. "## 3. Alertas Técnicos"
     """)
 
-# --- PROMPT 2: DECISÃO (SINTÉTICA E RIGOROSA) ---
+# --- PROMPT 2: DECISÃO (TEXTO CORRIDO E RIGOROSO) ---
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
     Atua como Técnico Superior da CCDR.
-    Redige a minuta de decisão.
+    Redige a minuta de decisão para um processo de Análise Caso a Caso (RJAIA).
 
-    PRINCÍPIOS DE REDAÇÃO (CRUCIAL):
-    1. **SÍNTESE EXTREMA:** Usa frases curtas. Vai direto ao número/facto. Evita texto "palha".
-    2. **RIGOR:** Cita sempre a fonte e página dos dados técnicos. Ex: (MD, pág. 4).
-    3. **ESTRUTURA:** Nas secções de "Caraterísticas" e "Impactes", usa parágrafos curtos ou semi-tópicos para densidade de informação.
+    ESTILO DE REDAÇÃO (IMPORTANTE):
+    1. **TEXTO CORRIDO (PROSA):** Não uses tópicos (bullets) nas células da tabela. Escreve parágrafos coesos e bem estruturados, com linguagem técnica e formal.
+    2. **RIGOR E RASTREABILIDADE:** Cita sempre a fonte e página dos dados técnicos entre parênteses. Ex: "...conforme indicado na Memória Descritiva (pág. 4)...".
+    3. **SÍNTESE:** Sê direto. Evita adjetivos vazios. Foca nos dados quantitativos.
 
     CONTEXTO:
     {t_proj[:150000]}
     {t_form[:30000]}
 
-    PREENCHE AS TAGS:
+    PREENCHE AS TAGS ABAIXO:
 
     ### CAMPO_DESIGNACAO
     (Nome do projeto)
@@ -180,7 +180,7 @@ def generate_decision_text(t_sim, t_form, t_proj):
     (Freguesia/Concelho)
     
     ### CAMPO_AREAS_SENSIVEIS
-    (Sim/Não e qual a alínea afetada, se houver)
+    (Frase completa sobre a localização face a áreas sensíveis)
     
     ### CAMPO_PROPONENTE
     (Nome/NIF)
@@ -192,32 +192,28 @@ def generate_decision_text(t_sim, t_form, t_proj):
     (Nome da autoridade)
 
     ### CAMPO_DESCRICAO
-    (Resumo do pedido: Localização, tipo de obra/operação e objetivo. Máximo 1 parágrafo denso.)
+    (Parágrafo de texto corrido descrevendo o objeto do licenciamento, localização, antecedentes administrativos e justificação do projeto.)
 
     ### CAMPO_CARATERISTICAS
-    (Foca nos DADOS QUANTITATIVOS. Sê telegráfico mas completo. Cita páginas.
-     Exemplo:
-     - Gestão de Resíduos: Prevê-se tratar X t/ano, sendo Y t de perigosos (MD, pág. 10). Capacidade instalada de Z t/ano.
-     - Recursos Hídricos: Abastecimento via rede pública. Efluentes pluviais encaminhados a separador de hidrocarbonetos (Cap. 5, pág. 22).
-     - Construção: Área de impermeabilização de X m2. Sem novas construções (Peças Desenhadas, pág. 3).)
+    (Texto corrido e denso. Deve abordar sequencialmente:
+     1. As quantidades de resíduos a gerir (discriminando perigosos/não perigosos e citando as páginas).
+     2. As capacidades instaladas vs instantâneas.
+     3. A infraestrutura física (áreas impermeabilizadas, coberta).
+     4. A gestão de efluentes (descrição do sistema de drenagem e tratamento).
+     Escreve de forma fluida, ligando as frases.)
     
     ### CAMPO_LOCALIZACAO_PROJETO
-    (Compatibilidade com PDM e Servidões.
-     Exemplo:
-     Zona classificada como "Espaços Industriais" no PDM de Leiria. Uso compatível (Planta Ordenamento). Não afeta REN/RAN.)
+    (Texto corrido analisando a compatibilidade com o PDM e servidões administrativas. Cita a planta de ordenamento se possível.)
     
     ### CAMPO_IMPACTES
-    (Avaliação concisa por fator.
-     Exemplo:
-     - Ar/Ruído: Impactes pouco significativos dada a envolvente industrial e distância a recetores sensíveis (>200m).
-     - Solo/Água: Risco minimizado pela impermeabilização total do recinto (MD, pág. 8) e rede de drenagem com tratamento prévio.
-     - Cumulativos: Não se preveem efeitos cumulativos relevantes com a atividade existente.)
+    (Texto corrido fundamentando a avaliação.
+     Descreve a magnitude dos impactes (Ar, Ruído, Solo) e justifica porque são ou não significativos, baseando-se nas medidas de projeto (ex: "A impermeabilização total garante a proteção do solo...").)
 
     ### CAMPO_DECISAO
     (SUJEITO ou NÃO SUJEITO)
     
     ### CAMPO_CONDICIONANTES
-    (Lista de obrigações técnicas essenciais.)
+    (Lista numerada ou parágrafo com as obrigações técnicas essenciais.)
     """)
 
 # ==========================================
@@ -226,7 +222,6 @@ def generate_decision_text(t_sim, t_form, t_proj):
 
 def create_validation_doc(text):
     doc = Document()
-    
     section = doc.sections[0]
     section.header.paragraphs[0].text = "Relatório de Auditoria Técnica"
     section.header.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -289,7 +284,6 @@ def create_decision_doc(text):
         c.merge(r.cells[1])
         c.text = content
 
-    # Preenchimento da Tabela
     add_section_header("Identificação")
     add_field_row("Designação do projeto", get_tag("CAMPO_DESIGNACAO"))
     add_field_row("Tipologia de Projeto", get_tag("CAMPO_TIPOLOGIA"))
@@ -334,7 +328,7 @@ def create_decision_doc(text):
 # ==========================================
 st.markdown("---")
 
-if st.button("🚀 Iniciar Análise Sintética", type="primary", use_container_width=True):
+if st.button("🚀 Iniciar Análise (Modo Texto Corrido)", type="primary", use_container_width=True):
     if not (files_sim and files_form and files_doc):
         st.error("⚠️ Carregue documentos nas 3 caixas.")
     elif not api_key:
@@ -346,10 +340,10 @@ if st.button("🚀 Iniciar Análise Sintética", type="primary", use_container_w
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            st.write("🕵️ A validar conformidade...")
+            st.write("🕵️ A auditar conformidade...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            st.write("⚖️ A sintetizar decisão técnica...")
+            st.write("⚖️ A redigir fundamentação técnica...")
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
             status.update(label="✅ Concluído!", state="complete")
@@ -372,7 +366,7 @@ if st.session_state.validation_result and st.session_state.decision_result:
     c2.download_button(
         "📝 2. Decisão Fundamentada", 
         f_dec.getvalue(), 
-        "Proposta_Decisao_Sintetica.docx", 
+        "Proposta_Decisao_Texto.docx", 
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
         type="primary", 
         key="btn_dec"
