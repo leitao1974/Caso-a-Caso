@@ -1,7 +1,7 @@
 import streamlit as st
 from pypdf import PdfReader
 from docx import Document
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import google.generativeai as genai
 import io
@@ -34,6 +34,7 @@ def reset_app():
 with st.sidebar:
     st.header("🔐 Configuração")
     
+    # Tenta ler dos secrets ou pede input
     if "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
         st.success("Chave API detetada!")
@@ -57,7 +58,6 @@ with st.sidebar:
             st.error(f"Erro: {e}")
 
     st.divider()
-    # Botão de Reset Explícito na Sidebar
     if st.button("🔄 Nova Análise / Limpar Tudo", use_container_width=True):
         reset_app()
         st.rerun()
@@ -70,7 +70,7 @@ st.markdown("### Validação Técnica e Decisão")
 
 col1, col2, col3 = st.columns(3)
 
-# Usamos a key dinâmica para permitir a limpeza dos ficheiros
+# Chaves dinâmicas para permitir limpeza
 with col1:
     st.info("📂 1. Simulação SILiAmb")
     files_sim = st.file_uploader("PDF Simulação", type=['pdf'], accept_multiple_files=True, key=f"up_sim_{st.session_state.uploader_key}")
@@ -84,7 +84,7 @@ with col3:
     files_doc = st.file_uploader("Peças Escritas", type=['pdf'], accept_multiple_files=True, key=f"up_doc_{st.session_state.uploader_key}")
 
 # ==========================================
-# --- FUNÇÕES ---
+# --- FUNÇÕES DE AUXÍLIO ---
 # ==========================================
 
 def extract_text(files, label):
@@ -102,9 +102,62 @@ def get_ai(prompt):
     model = genai.GenerativeModel(selected_model)
     return model.generate_content(prompt).text
 
+# --- FORMATADOR INTELIGENTE (MARKDOWN -> WORD) ---
+def markdown_to_word(doc, text):
+    """
+    Converte texto Markdown simples (Headers ##, Bullets -, Bold **) em estilos Word.
+    Torna o relatório muito mais legível.
+    """
+    lines = text.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line: continue
+        
+        # 1. Títulos (##)
+        if line.startswith('##'):
+            clean_text = line.replace('#', '').strip()
+            doc.add_heading(clean_text, level=2)
+        
+        # 2. Títulos Menores (###)
+        elif line.startswith('###'):
+            clean_text = line.replace('#', '').strip()
+            doc.add_heading(clean_text, level=3)
+            
+        # 3. Listas (Bullets)
+        elif line.startswith('- ') or line.startswith('* '):
+            clean_text = line[2:].strip()
+            p = doc.add_paragraph(style='List Bullet')
+            # Aplica negrito se houver **texto**
+            parts = re.split(r'(\*\*.*?\*\*)', clean_text)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    run = p.add_run(part[2:-2])
+                    run.bold = True
+                else:
+                    p.add_run(part)
+                    
+        # 4. Texto Normal
+        else:
+            p = doc.add_paragraph()
+            # Aplica negrito se houver **texto**
+            parts = re.split(r'(\*\*.*?\*\*)', line)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    run = p.add_run(part[2:-2])
+                    run.bold = True
+                else:
+                    p.add_run(part)
+
+# ==========================================
+# --- PROMPTS DA IA ---
+# ==========================================
+
 def analyze_validation(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como Auditor Técnico. Realiza uma TRIANGULAÇÃO DE DADOS entre:
+    Atua como Auditor Técnico Sénior. A tua tarefa é criar um RELATÓRIO DE INCONGRUÊNCIAS legível e estruturado.
+    
+    Realiza uma TRIANGULAÇÃO DE DADOS rigorosa entre:
     1. SIMULAÇÃO | 2. FORMULÁRIO | 3. PROJETO
     
     DADOS:
@@ -113,56 +166,94 @@ def analyze_validation(t_sim, t_form, t_proj):
     [PROJETO]: {t_proj[:100000]}
 
     TAREFA:
-    Verifica consistência de: Identificação, Localização, CAEs, Áreas, Capacidades.
+    Verifica: Identificação, Localização, CAEs, Áreas (Implantação/Total), Capacidades.
     
-    SAÍDA:
-    Produz um relatório técnico.
-    - Se houver divergências (>1%): Inicia com "STATUS: ALERTA DE INCONSISTÊNCIA". Lista as falhas detalhadamente.
-    - Se consistente: Inicia com "STATUS: VALIDADO". Resume os dados confirmados.
+    ESTRUTURA OBRIGATÓRIA DA RESPOSTA (Usa Markdown):
+    
+    1. Começa com uma linha contendo apenas: "STATUS: [VALIDADO ou INCONSISTENTE]"
+    
+    2. Cria uma secção: "## 1. Resumo Executivo"
+       - Resume em 2 linhas se o processo está apto ou tem falhas graves.
+    
+    3. Cria uma secção: "## 2. Análise de Consistência"
+       - Usa uma lista (bullet points) para cada parâmetro analisado.
+       - Se houver erro, escreve: "- **[PARÂMETRO]**: ❌ Inconsistente. (Simulação: X | Projeto: Y)"
+       - Se estiver correto, escreve: "- **[PARÂMETRO]**: ✅ Validado."
+    
+    4. Cria uma secção: "## 3. Detalhe das Incongruências" (Apenas se existirem)
+       - Explica porque é que a diferença é relevante ou se pode ser erro de arredondamento.
+    
+    Nota: Sê direto e claro. Usa formatação Markdown (negrito **texto**, listas - item, titulos ##).
     """)
 
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
     Atua como Entidade Licenciadora. Produz a MINUTA DE ANÁLISE CASO A CASO (DL 151-B/2013).
-    Assume que os dados do PROJETO são os mais corretos em caso de dúvida.
+    Usa o texto do PROJETO como fonte principal.
 
     CONTEXTO:
     {t_proj[:120000]}
     {t_form[:30000]}
 
-    Preenche as tags para a minuta:
+    Preenche as tags abaixo (não mudes os nomes das tags):
     ### CAMPO_DESIGNACAO
     ### CAMPO_TIPOLOGIA (Anexo, Ponto, Alínea)
     ### CAMPO_LOCALIZACAO
     ### CAMPO_AREAS_SENSIVEIS
     ### CAMPO_PROPONENTE
-    ### CAMPO_DESCRICAO (Resumo técnico)
+    ### CAMPO_DESCRICAO (Resumo claro)
     ### CAMPO_FUNDAMENTACAO_CARATERISTICAS (Anexo III)
     ### CAMPO_FUNDAMENTACAO_LOCALIZACAO (Anexo III)
     ### CAMPO_FUNDAMENTACAO_IMPACTES (Anexo III)
-    ### CAMPO_DECISAO ("SUJEITO" ou "NÃO SUJEITO")
-    ### CAMPO_CONDICIONANTES (Bullet points)
+    ### CAMPO_DECISAO ("SUJEITO A AIA" ou "NÃO SUJEITO A AIA")
+    ### CAMPO_CONDICIONANTES (Lista bullet points)
     """)
 
 # ==========================================
-# --- WORD GENERATORS ---
+# --- GERADORES DE WORD ---
 # ==========================================
 
 def create_validation_doc(text):
     doc = Document()
-    doc.add_heading("Relatório de Validação da Instrução", 0)
-    doc.add_paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y')}")
     
-    if "ALERTA" in text.upper() or "INCONSIST" in text.upper():
-        p = doc.add_paragraph("ALERTA: FORAM DETETADAS INCONGRUÊNCIAS")
-        p.runs[0].bold = True
-        p.runs[0].font.color.rgb = RGBColor(200, 0, 0)
+    # Cabeçalho Institucional Simples
+    section = doc.sections[0]
+    header = section.header
+    p_head = header.paragraphs[0]
+    p_head.text = "Relatório de Validação Técnica - RJAIA"
+    p_head.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    # Título Principal
+    title = doc.add_heading("Relatório de Incongruências e Validação", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph(f"Data da Análise: {datetime.now().strftime('%d/%m/%Y')}\n").alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Caixa de Status Colorida
+    status_paragraph = doc.add_paragraph()
+    if "STATUS: INCONSISTENTE" in text.upper() or "STATUS: ALERTA" in text.upper():
+        runner = status_paragraph.add_run("⚠️ PARECER: EXISTEM INCONGRUÊNCIAS A VERIFICAR")
+        runner.bold = True
+        runner.font.color.rgb = RGBColor(255, 0, 0) # Vermelho
+        runner.font.size = Pt(14)
     else:
-        p = doc.add_paragraph("PROCESSO VALIDADO")
-        p.runs[0].bold = True
-        p.runs[0].font.color.rgb = RGBColor(0, 128, 0)
-        
-    doc.add_paragraph(text)
+        runner = status_paragraph.add_run("✅ PARECER: PROCESSO CONSISTENTE")
+        runner.bold = True
+        runner.font.color.rgb = RGBColor(0, 150, 0) # Verde
+        runner.font.size = Pt(14)
+    status_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph("---") # Linha separadora
+
+    # Usa o parser inteligente para formatar o corpo do texto
+    # Remove a primeira linha de status do corpo para não duplicar
+    clean_body = re.sub(r'STATUS:.*', '', text, count=1).strip()
+    markdown_to_word(doc, clean_body)
+
+    # Rodapé
+    footer = section.footer
+    p_foot = footer.paragraphs[0]
+    p_foot.text = "Documento gerado automaticamente por IA. A validação final cabe ao técnico responsável."
+    
     bio = io.BytesIO()
     doc.save(bio)
     return bio
@@ -239,7 +330,6 @@ def create_decision_doc(text):
 # ==========================================
 st.markdown("---")
 
-# Botão de Processamento
 if st.button("🚀 Processar Documentos", type="primary", use_container_width=True):
     if not (files_sim and files_form and files_doc):
         st.error("⚠️ Carregue documentos nas 3 caixas.")
@@ -252,37 +342,36 @@ if st.button("🚀 Processar Documentos", type="primary", use_container_width=Tr
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            st.write("🕵️ A validar consistência...")
-            # GUARDAR NO SESSION STATE
+            st.write("🕵️ A analisar consistência (Triangulação)...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
             st.write("⚖️ A redigir minuta de decisão...")
-            # GUARDAR NO SESSION STATE
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
             status.update(label="✅ Concluído!", state="complete")
 
 # ==========================================
-# --- ÁREA DE RESULTADOS (PERSISTENTE) ---
+# --- ÁREA DE DOWNLOADS ---
 # ==========================================
-
-# Verificamos se já existe resultado na memória. Se sim, mostramos os botões.
 if st.session_state.validation_result and st.session_state.decision_result:
     
-    st.success("Documentos gerados e prontos para descarga.")
+    st.success("Análise concluída com sucesso.")
+    st.markdown("### 📥 Descarregar Resultados")
     
     c1, c2 = st.columns(2)
     
-    # Geramos os Words on-the-fly com base no texto guardado na memória
+    # Documento 1: Relatório de Validação (Melhorado)
     f_val = create_validation_doc(st.session_state.validation_result)
     c1.download_button(
         label="📄 1. Relatório de Validação",
         data=f_val.getvalue(),
-        file_name="Relatorio_Validacao.docx",
+        file_name="Relatorio_Incongruencias.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        key="btn_down_val" # Key única para evitar conflitos
+        key="btn_val",
+        help="Relatório detalhado com lista de conformidades e disparidades."
     )
     
+    # Documento 2: Minuta de Decisão
     f_dec = create_decision_doc(st.session_state.decision_result)
     c2.download_button(
         label="📝 2. Minuta de Decisão",
@@ -290,8 +379,6 @@ if st.session_state.validation_result and st.session_state.decision_result:
         file_name="Proposta_Decisao.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         type="primary",
-        key="btn_down_dec" # Key única
+        key="btn_dec",
+        help="Minuta preenchida pronta a editar."
     )
-
-    st.markdown("---")
-    st.info("Para analisar um novo processo, clique no botão 'Nova Análise' na barra lateral.")
