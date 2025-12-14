@@ -46,6 +46,7 @@ with st.sidebar:
             models = genai.list_models()
             valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
             if valid_models:
+                # Flash é melhor para documentos longos e extração
                 idx = next((i for i, m in enumerate(valid_models) if 'flash' in m), 0)
                 selected_model = st.selectbox("Modelo IA:", valid_models, index=idx)
                 st.info("✅ Sistema Pronto")
@@ -109,6 +110,7 @@ def markdown_to_word(doc, text):
             doc.add_heading(line.replace('#', '').strip(), level=3)
         elif line.startswith('- ') or line.startswith('* '):
             p = doc.add_paragraph(style='List Bullet')
+            # Negrito simples
             parts = re.split(r'(\*\*.*?\*\*)', line[2:])
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
@@ -127,8 +129,9 @@ def markdown_to_word(doc, text):
 # --- PROMPT 1: VALIDAÇÃO ---
 def analyze_validation(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como Auditor Técnico. Realiza uma TRIANGULAÇÃO DE DADOS entre:
-    1. SIMULAÇÃO | 2. FORMULÁRIO | 3. PROJETO
+    Atua como Auditor Técnico Sénior em Licenciamento Ambiental.
+    Realiza uma TRIANGULAÇÃO DE DADOS rigorosa entre:
+    1. SIMULAÇÃO SILiAmb | 2. FORMULÁRIO | 3. PROJETO (Memória Descritiva)
     
     DADOS:
     [SIMULAÇÃO]: {t_sim[:30000]}
@@ -136,68 +139,88 @@ def analyze_validation(t_sim, t_form, t_proj):
     [PROJETO]: {t_proj[:100000]}
 
     TAREFA:
-    Verifica consistência de: Identificação, Localização, CAEs, Áreas, Capacidades.
+    Verifica a consistência EXATA de: 
+    - Designação e Identificação do Proponente (NIF).
+    - Localização administrativa (Freguesia, Artigos Matriciais).
+    - Enquadramento (CAEs, Tipologia RJAIA).
+    - Números: Áreas (Implantação, Impermeabilização), Capacidades (ton/ano), Gestão de Resíduos.
     
-    SAÍDA (Markdown):
+    OUTPUT (Markdown):
     1. "STATUS: [VALIDADO ou INCONSISTENTE]"
-    2. "## 1. Resumo Executivo"
-    3. "## 2. Análise de Consistência" (Checklist com ✅ ou ❌)
-    4. "## 3. Detalhe" (Se houver erros)
+    2. "## 1. Resumo Executivo" (2 linhas).
+    3. "## 2. Análise de Consistência" (Checklist detalhada com ✅ ou ❌ e valores comparados).
+    4. "## 3. Detalhe e Recomendações" (Se houver erros).
     """)
 
-# --- PROMPT 2: DECISÃO (Atualizado para coincidir com o Modelo) ---
+# --- PROMPT 2: DECISÃO (REFINADO PARA O MODELO UACNB) ---
 def generate_decision_text(t_sim, t_form, t_proj):
     return get_ai(f"""
-    Atua como Entidade Licenciadora. Produz a MINUTA DE ANÁLISE CASO A CASO (DL 151-B/2013).
-    Usa os dados do PROJETO e FORMULÁRIO.
+    Atua como Técnico Superior da CCDR. O teu objetivo é redigir a "Análise prévia e decisão de sujeição a AIA" com elevado rigor técnico e jurídico.
+    
+    Usa a informação do PROJETO e FORMULÁRIO.
 
     CONTEXTO:
-    {t_proj[:120000]}
+    {t_proj[:150000]}
     {t_form[:30000]}
 
-    Preenche as tags abaixo EXATAMENTE como pedido:
+    INSTRUÇÕES DE PREENCHIMENTO (Segue o estilo formal):
+    - Não inventes dados. Se não existir, escreve "Não aplicável" ou "A preencher".
+    - Na "Fundamentação", sê exaustivo: cita toneladas, metros quadrados, códigos LER e PDM.
+    - Usa a terminologia jurídica correta para as tipologias (Ex: "Subalínea ii) da alínea b)...").
+
+    PREENCHE AS SEGUINTES TAGS:
 
     ### CAMPO_DESIGNACAO
-    (Nome do projeto)
+    (Nome do Proponente ou Designação do Estabelecimento)
     
     ### CAMPO_TIPOLOGIA
-    (Apenas a tipologia do projeto, ex: Indústria de...)
+    (Apenas a referência legal da atividade no Anexo do RJAIA. Ex: "Subalínea ii) da alínea b) do ponto 11 do Anexo II do RJAIA")
     
     ### CAMPO_ENQUADRAMENTO
-    (O enquadramento legal: Anexo, Ponto, Alínea do RJAIA e se é sub-limiar)
+    (A referência legal da sujeição a análise caso a caso. Ex: "Subalínea ii) da alínea b) do n.º 3 do art.º 1º do RJAIA")
     
     ### CAMPO_LOCALIZACAO
-    (Freguesia e Concelho. Ex: União de Freguesias de X, Concelho de Y)
+    (Freguesia e Concelho exatos. Ex: "União das freguesias de Monte Redondo e Carreira, concelho de Leiria")
     
     ### CAMPO_AREAS_SENSIVEIS
-    (Sim ou Não. Se Sim, indica qual a alínea a) do artigo 2º do RJAIA afetada)
+    (Frase completa. Ex: "O projeto não se localiza em áreas sensíveis identificadas na alínea a) do Artigo 2º do Decreto-Lei nº 152-B/2017.")
     
     ### CAMPO_PROPONENTE
-    (Nome e NIF)
+    (Nome da empresa)
     
     ### CAMPO_ENTIDADE_LICENCIADORA
-    (Identifica a entidade licenciadora se constar nos docs, senão escreve "A preencher")
+    (Normalmente "CCDRC, I.P." para resíduos, ou a Câmara Municipal se for urbano. Verifica os docs.)
     
     ### CAMPO_AUTORIDADE_AIA
-    (Identifica a autoridade de AIA, ex: CCDR Centro, APA, ou "A preencher")
+    ("CCDRC, I.P.")
 
     ### CAMPO_DESCRICAO
-    (Breve descrição do projeto: o que é, objetivos e dimensões principais)
+    (Texto corrido e detalhado, dividido em parágrafos. Deve incluir:
+    1. Localização exata (Estrada, nº, artigo matricial).
+    2. Objetivo do pedido (Licenciamento de operações R12, regularização, ampliação?).
+    3. Referência a licenças de obras anteriores (nº da licença).
+    4. Áreas exatas (área total, coberta, impermeabilizada).
+    5. Justificação de não haver alternativas.)
 
     ### CAMPO_CARATERISTICAS
-    (Fundamentação Anexo III: Dimensão, cumulação, recursos, resíduos, poluição)
+    (Texto técnico detalhado. Deve incluir:
+    1. Quantidades totais de resíduos geridos (ton/ano) discriminado por operação (R12F, R12C).
+    2. Discriminação de VFV e Resíduos Perigosos vs Não Perigosos.
+    3. Capacidade Instalada vs Capacidade Instantânea de Armazenamento (CIA).
+    4. Comparação explicita com os limiares do RJAIA (Ex: "A capacidade é inferior ao limiar de 50t...").
+    5. Gestão de efluentes e águas pluviais (separadores de hidrocarbonetos, poço absorvente).)
     
     ### CAMPO_LOCALIZACAO_PROJETO
-    (Fundamentação Anexo III: Uso atual do solo, capacidade de carga, áreas protegidas)
+    (Análise do PDM. Identifica a classe de espaço (Ex: Espaços Urbanos de Baixa Densidade, Área de Estrada). Confirma a compatibilidade com o uso do solo.)
     
     ### CAMPO_IMPACTES
-    (Fundamentação Anexo III: Extensão, magnitude, probabilidade, duração)
+    (Metodologia de avaliação. Identifica fatores avaliados (Socioeconomia, Ar, Ruído, Solo). Conclui sobre a significância (Ex: "impactes pouco significativos", "efeitos cumulativos desprezáveis").)
 
     ### CAMPO_DECISAO
-    (Apenas: "SUJEITO A AIA" ou "NÃO SUJEITO A AIA")
+    (Texto completo da decisão. Ex: "Da análise efetuada, verifica-se que o projeto em análise não é suscetível de provocar impactes significativos no ambiente, pelo que se emite decisão de NÃO SUJEIÇÃO do projeto a procedimento de AIA.")
     
     ### CAMPO_CONDICIONANTES
-    (Lista de medidas a impor no licenciamento)
+    (Lista de medidas técnicas. Ex: Monitorização de efluentes, Manutenção de separadores, Impermeabilização de solos, etc.)
     """)
 
 # ==========================================
@@ -207,14 +230,17 @@ def generate_decision_text(t_sim, t_form, t_proj):
 def create_validation_doc(text):
     doc = Document()
     
+    # Cabeçalho
     section = doc.sections[0]
-    section.header.paragraphs[0].text = "Relatório de Validação Técnica"
-    section.header.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    header = section.header
+    p = header.paragraphs[0]
+    p.text = "Relatório de Validação da Instrução"
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    doc.add_heading("Relatório de Incongruências e Validação", 0)
+    doc.add_heading("Relatório de Validação e Incongruências", 0)
     doc.add_paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y')}")
 
-    if "INCONSISTENTE" in text.upper() or "ALERTA" in text.upper():
+    if "INCONSISTENTE" in text.upper():
         p = doc.add_paragraph("⚠️ PARECER: EXISTEM INCONGRUÊNCIAS")
         p.runs[0].font.color.rgb = RGBColor(255, 0, 0)
     else:
@@ -223,6 +249,7 @@ def create_validation_doc(text):
     p.runs[0].bold = True
     
     doc.add_paragraph("---")
+    # Remove a primeira linha de status para limpar o texto
     clean_text = re.sub(r'STATUS:.*', '', text, count=1).strip()
     markdown_to_word(doc, clean_text)
     
@@ -235,85 +262,94 @@ def create_decision_doc(text):
     style = doc.styles['Normal']
     style.font.name = 'Arial'
     style.font.size = Pt(10)
+    style.paragraph_format.space_after = Pt(6)
 
-    # Função auxiliar para extrair tags
+    # Parser de Tags
     def get_tag(tag):
         m = re.search(f"### {tag}(.*?)###", text, re.DOTALL)
         if not m: m = re.search(f"### {tag}(.*)", text, re.DOTALL)
         return m.group(1).strip() if m else ""
 
-    # Título do Documento
-    # Nota: O modelo original tem logos da CCDR, aqui usamos texto simples
+    # Título Institucional
     h = doc.add_heading("Análise prévia e decisão de sujeição a AIA", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph("")
 
-    # Tabela Principal
+    # --- CRIAÇÃO DA TABELA ---
     table = doc.add_table(rows=0, cols=2)
     table.style = 'Table Grid'
 
-    # Funções para adicionar linhas conforme o modelo
-    def add_merged_header(txt):
+    # Função para Cabeçalhos Fundidos (Fundo Cinza/Negrito)
+    def add_section_header(txt):
         r = table.add_row()
         c = r.cells[0]
         c.merge(r.cells[1])
-        # Fundo cinza ou destaque se necessário, aqui apenas negrito
-        p = c.paragraphs[0]
-        run = p.add_run(txt)
+        # Podes adicionar shading aqui se quiseres, por agora fica Bold
+        run = c.paragraphs[0].add_run(txt)
         run.bold = True
         return r
 
-    def add_row(label, value):
+    # Função para Linhas Identificação (Label | Valor)
+    def add_field_row(label, value):
         r = table.add_row()
         r.cells[0].paragraphs[0].add_run(label).bold = True
         r.cells[1].text = value
 
-    # 1. Identificação
-    add_merged_header("Identificação")
-    add_row("Designação do projeto", get_tag("CAMPO_DESIGNACAO"))
-    add_row("Tipologia de Projeto", get_tag("CAMPO_TIPOLOGIA"))
-    add_row("Enquadramento no RJAIA", get_tag("CAMPO_ENQUADRAMENTO"))
-    add_row("Localização (freguesia e concelho)", get_tag("CAMPO_LOCALIZACAO"))
-    add_row("Afetação de áreas sensíveis (alínea a) do artigo 2º do RJAIA)", get_tag("CAMPO_AREAS_SENSIVEIS"))
-    add_row("Proponente", get_tag("CAMPO_PROPONENTE"))
-    add_row("Entidade Licenciadora", get_tag("CAMPO_ENTIDADE_LICENCIADORA"))
-    add_row("Autoridade de AIA", get_tag("CAMPO_AUTORIDADE_AIA"))
+    # Função para Linhas de Texto Longo (Header Fundido -> Texto Fundido)
+    def add_full_text_section(header, content):
+        # 1. Cabeçalho da Secção
+        add_section_header(header)
+        # 2. Conteúdo em baixo (Fundido)
+        r = table.add_row()
+        c = r.cells[0]
+        c.merge(r.cells[1])
+        c.text = content
 
-    # 2. Breve Descrição
-    add_merged_header("Breve descrição do projeto")
-    r = table.add_row()
-    r.cells[0].merge(r.cells[1])
-    r.cells[0].text = get_tag("CAMPO_DESCRICAO")
+    # --- 1. IDENTIFICAÇÃO ---
+    add_section_header("Identificação")
+    add_field_row("Designação do projeto", get_tag("CAMPO_DESIGNACAO"))
+    add_field_row("Tipologia de Projeto", get_tag("CAMPO_TIPOLOGIA"))
+    add_field_row("Enquadramento no RJAIA", get_tag("CAMPO_ENQUADRAMENTO"))
+    add_field_row("Localização (freguesia e concelho)", get_tag("CAMPO_LOCALIZACAO"))
+    add_field_row("Afetação de áreas sensíveis (alínea a) do artigo 2º do RJAIA)", get_tag("CAMPO_AREAS_SENSIVEIS"))
+    add_field_row("Proponente", get_tag("CAMPO_PROPONENTE"))
+    add_field_row("Entidade Licenciadora", get_tag("CAMPO_ENTIDADE_LICENCIADORA"))
+    add_field_row("Autoridade de AIA", get_tag("CAMPO_AUTORIDADE_AIA"))
 
-    # 3. Fundamentação
-    add_merged_header("Fundamentação da decisão")
-    add_row("Caraterísticas do projeto", get_tag("CAMPO_CARATERISTICAS"))
-    add_row("Localização do projeto", get_tag("CAMPO_LOCALIZACAO_PROJETO"))
-    add_row("Características do impacte potencial", get_tag("CAMPO_IMPACTES"))
+    # --- 2. BREVE DESCRIÇÃO (Layout: Cabeçalho -> Texto Full) ---
+    add_full_text_section("Breve descrição do projeto", get_tag("CAMPO_DESCRICAO"))
 
-    # 4. Decisão
-    add_merged_header("Decisão")
+    # --- 3. FUNDAMENTAÇÃO (Layout: Cabeçalho Geral -> Label | Valor Longo) ---
+    add_section_header("Fundamentação da decisão")
+    add_field_row("Caraterísticas do projeto", get_tag("CAMPO_CARATERISTICAS"))
+    add_field_row("Localização do projeto", get_tag("CAMPO_LOCALIZACAO_PROJETO"))
+    add_field_row("Características do impacte potencial", get_tag("CAMPO_IMPACTES"))
+
+    # --- 4. DECISÃO (Layout: Cabeçalho -> Texto Full Destaque) ---
+    add_section_header("Decisão")
     r = table.add_row()
     c = r.cells[0]
     c.merge(r.cells[1])
-    decision_text = get_tag("CAMPO_DECISAO")
-    run = c.paragraphs[0].add_run(decision_text)
+    run = c.paragraphs[0].add_run(get_tag("CAMPO_DECISAO"))
     run.bold = True
-    run.font.size = Pt(12)
-    
-    # 5. Condicionantes
-    add_merged_header("Condicionantes a impor em sede de licenciamento")
-    r = table.add_row()
-    c = r.cells[0]
-    c.merge(r.cells[1])
-    c.text = get_tag("CAMPO_CONDICIONANTES")
+    run.font.size = Pt(11)
 
-    # Assinatura
-    doc.add_paragraph("\n\n")
+    # --- 5. CONDICIONANTES (Layout: Cabeçalho -> Texto Full) ---
+    add_full_text_section("Condicionantes a impor em sede de licenciamento", get_tag("CAMPO_CONDICIONANTES"))
+
+    # --- ASSINATURA ---
+    doc.add_paragraph("\n")
     sig_table = doc.add_table(rows=1, cols=2)
+    sig_table.allow_autofit = True
+    
+    # Data à esquerda
     sig_table.rows[0].cells[0].text = "Data: " + datetime.now().strftime('%d/%m/%Y')
-    sig_table.rows[0].cells[1].text = "O Técnico,\n_______________________"
-    sig_table.rows[0].cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    
+    # Assinatura à direita
+    c_sig = sig_table.rows[0].cells[1]
+    p_sig = c_sig.paragraphs[0]
+    p_sig.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_sig.add_run("A Presidente da CCDRC,\n\n_______________________").bold = True
 
     bio = io.BytesIO()
     doc.save(bio)
@@ -336,20 +372,34 @@ if st.button("🚀 Processar Documentos", type="primary", use_container_width=Tr
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            st.write("🕵️ Validação Técnica...")
+            st.write("🕵️ A analisar (Triangulação)...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            st.write("⚖️ Minuta de Decisão...")
+            st.write("⚖️ A redigir minuta técnica...")
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
             status.update(label="✅ Concluído!", state="complete")
 
 if st.session_state.validation_result and st.session_state.decision_result:
-    st.success("Análise concluída.")
+    st.success("Resultados prontos.")
+    
     c1, c2 = st.columns(2)
     
     f_val = create_validation_doc(st.session_state.validation_result)
-    c1.download_button("📄 1. Relatório de Validação", f_val.getvalue(), "Relatorio_Validacao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="btn_val")
+    c1.download_button(
+        label="📄 1. Relatório de Validação", 
+        data=f_val.getvalue(), 
+        file_name="Relatorio_Validacao.docx", 
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        key="btn_val"
+    )
     
     f_dec = create_decision_doc(st.session_state.decision_result)
-    c2.download_button("📝 2. Minuta de Decisão", f_dec.getvalue(), "Proposta_Decisao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary", key="btn_dec")
+    c2.download_button(
+        label="📝 2. Minuta de Decisão", 
+        data=f_dec.getvalue(), 
+        file_name="Proposta_Decisao.docx", 
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+        type="primary",
+        key="btn_dec"
+                 )
