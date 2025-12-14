@@ -4,7 +4,9 @@ from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 import io
+import time
 from datetime import datetime
 import re
 import os
@@ -97,8 +99,24 @@ def extract_text(files, label):
     return text
 
 def get_ai(prompt):
+    """
+    Envia o prompt para a IA com mecanismo de RETRY para evitar erros de quota.
+    """
     model = genai.GenerativeModel(selected_model)
-    return model.generate_content(prompt).text
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            return model.generate_content(prompt).text
+        except ResourceExhausted:
+            # Se atingir o limite, espera e tenta de novo
+            wait_time = 10 * (attempt + 1)
+            st.toast(f"⏳ Limite de quota atingido. A aguardar {wait_time}s para tentar de novo...", icon="⚠️")
+            time.sleep(wait_time)
+        except Exception as e:
+            return f"Erro na IA: {str(e)}"
+    
+    return "ERRO: O sistema está sobrecarregado. Por favor, tente novamente daqui a 1 minuto."
 
 def markdown_to_word(doc, text):
     lines = text.split('\n')
@@ -128,6 +146,7 @@ def markdown_to_word(doc, text):
 
 # --- PROMPT 1: VALIDAÇÃO CRÍTICA ---
 def analyze_validation(t_sim, t_form, t_proj):
+    # Limitamos ligeiramente o contexto para evitar ResourceExhausted
     return get_ai(f"""
     Atua como PERITO AUDITOR.
     
@@ -135,9 +154,9 @@ def analyze_validation(t_sim, t_form, t_proj):
     1. SIMULAÇÃO | 2. FORMULÁRIO | 3. PROJETO
     
     DADOS:
-    {t_sim[:30000]}
-    {t_form[:30000]}
-    {t_proj[:100000]}
+    {t_sim[:25000]}
+    {t_form[:25000]}
+    {t_proj[:80000]}
 
     TAREFA:
     Audita a consistência de números (Áreas, Toneladas, Capacidades) e códigos LER/CAE.
@@ -165,8 +184,8 @@ def generate_decision_text(t_sim, t_form, t_proj):
     "A instalação prevê tratar 500 t/ano de VFV (MD, pág. 12), em área totalmente impermeabilizada de 200m2 (Peças Desenhadas, Doc. 3). Os efluentes passam por separador de hidrocarbonetos antes da descarga (Pág. 15), garantindo o cumprimento dos VLE."
 
     CONTEXTO:
-    {t_proj[:150000]}
-    {t_form[:30000]}
+    {t_proj[:120000]}
+    {t_form[:25000]}
 
     PREENCHE AS TAGS ABAIXO:
 
@@ -341,10 +360,10 @@ if st.button("🚀 Iniciar Análise Sintética", type="primary", use_container_w
             tf = extract_text(files_form, "FORM")
             tp = extract_text(files_doc, "PROJ")
             
-            st.write("🕵️ A auditar conformidade...")
+            st.write("🕵️ A auditar conformidade (Tentativa Segura)...")
             st.session_state.validation_result = analyze_validation(ts, tf, tp)
             
-            st.write("⚖️ A redigir decisão (Modo Síntese Rigorosa)...")
+            st.write("⚖️ A redigir decisão (Tentativa Segura)...")
             st.session_state.decision_result = generate_decision_text(ts, tf, tp)
             
             status.update(label="✅ Concluído!", state="complete")
@@ -371,4 +390,4 @@ if st.session_state.validation_result and st.session_state.decision_result:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
         type="primary", 
         key="btn_dec"
-    )
+                )
