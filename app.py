@@ -77,9 +77,7 @@ with st.sidebar:
 # ==========================================
 
 def add_hyperlink(paragraph, text, url):
-    """
-    Adiciona um hiperlink clicável num parágrafo do Word.
-    """
+    """Adiciona um hiperlink clicável num parágrafo do Word."""
     part = paragraph.part
     r_id = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
 
@@ -88,8 +86,6 @@ def add_hyperlink(paragraph, text, url):
 
     new_run = OxmlElement("w:r")
     rPr = OxmlElement("w:rPr")
-
-    # Estilo do Link (Azul sublinhado)
     c = OxmlElement("w:color")
     c.set(qn("w:val"), "0000FF")
     rPr.append(c)
@@ -123,12 +119,10 @@ def markdown_to_word(doc, text):
             p = doc.add_paragraph()
             process_bold(p, line)
         
-        # JUSTIFICAR TEXTO (exceto títulos)
         if p and not line.startswith('#'):
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 def process_bold(paragraph, text):
-    """Processa negrito (**texto**) dentro do parágrafo."""
     parts = re.split(r'(\*\*.*?\*\*)', text)
     for part in parts:
         if part.startswith('**') and part.endswith('**'):
@@ -137,7 +131,6 @@ def process_bold(paragraph, text):
             paragraph.add_run(part)
 
 def append_legislation_section(doc):
-    """Adiciona a lista de legislação com hiperlinks no final."""
     doc.add_page_break()
     doc.add_heading("Legislação Consultada e Referências", level=1)
     
@@ -194,13 +187,13 @@ def analyze_validation(t_sim, t_form, t_proj):
     TAREFA:
     1. Audita a consistência dos dados (Áreas, Toneladas, LER).
     2. Verifica o enquadramento legal: O projeto ultrapassa algum limiar do RJAIA? Cita o Anexo e o Ponto específico.
-    3. Identifica a legislação setorial aplicável (Resíduos, Indústria, etc.).
+    3. Identifica a legislação setorial aplicável.
     
     OUTPUT (Markdown):
     1. "STATUS: [VALIDADO ou INCONSISTENTE]"
     2. "## 1. Resumo Executivo"
     3. "## 2. Auditoria de Conformidade" (Com citações de página)
-    4. "## 3. Enquadramento Legal e Limiares" (Análise detalhada face ao RJAIA e legislação setorial).
+    4. "## 3. Enquadramento Legal e Limiares" (Análise detalhada face ao RJAIA).
     """)
 
 def generate_decision_text(t_sim, t_form, t_proj):
@@ -208,7 +201,8 @@ def generate_decision_text(t_sim, t_form, t_proj):
     Atua como Técnico Superior da CCDR. Redige a MINUTA DE DECISÃO.
     
     REGRAS DE FORMATAÇÃO:
-    - Texto corrido, JUSTIFICADO, linguagem formal e culta.
+    - Texto corrido, JUSTIFICADO, linguagem formal.
+    - Usa parágrafos curtos para facilitar a leitura.
     - Cita sempre a fonte: (MD, pág. X).
     
     CONTEXTO:
@@ -231,16 +225,16 @@ def generate_decision_text(t_sim, t_form, t_proj):
     ### CAMPO_AUTORIDADE_AIA
     
     ### CAMPO_DESCRICAO
-    (Resumo técnico denso do projeto.)
+    (Resumo técnico. Divide em 2 ou 3 parágrafos se necessário.)
     
     ### CAMPO_CARATERISTICAS
-    (Fundamentação técnica. Quantifica resíduos/efluentes. Compara explicitamente com os limiares do RJAIA (ex: "A capacidade de X t/ano é inferior ao limiar de 100 t/ano previsto no Anexo II...").)
+    (Fundamentação técnica. Quantifica resíduos/efluentes. Divide em parágrafos temáticos (Resíduos, Águas, Ar) para facilitar a leitura.)
     
     ### CAMPO_LOCALIZACAO_PROJETO
     (Compatibilidade com PDM/REN/RAN.)
     
     ### CAMPO_IMPACTES
-    (Avaliação dos descritores ambientais.)
+    (Avaliação dos descritores ambientais. Usa parágrafos separados para cada descritor relevante.)
     
     ### CAMPO_DECISAO
     (SUJEITO / NÃO SUJEITO)
@@ -256,17 +250,14 @@ def generate_decision_text(t_sim, t_form, t_proj):
 def create_validation_doc(text):
     doc = Document()
     
-    # Cabeçalho
     sec = doc.sections[0]
     sec.header.paragraphs[0].text = "Relatório de Auditoria Técnica"
     sec.header.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    # Título
     h = doc.add_heading("Auditoria de Conformidade Legal e Técnica", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y')}\n").alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Status
     p_status = doc.add_paragraph()
     p_status.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if "INCONSISTENTE" in text.upper():
@@ -280,11 +271,9 @@ def create_validation_doc(text):
     
     doc.add_paragraph("---")
     
-    # Corpo do Texto Justificado
     clean_text = re.sub(r'STATUS:.*', '', text, count=1).strip()
     markdown_to_word(doc, clean_text)
     
-    # Adicionar Legislação e Hiperlinks
     append_legislation_section(doc)
     
     bio = io.BytesIO()
@@ -296,6 +285,8 @@ def create_decision_doc(text):
     style = doc.styles['Normal']
     style.font.name = 'Arial'
     style.font.size = Pt(10)
+    # Aumentar espaçamento global entre parágrafos para leitura fácil
+    style.paragraph_format.space_after = Pt(12) 
     
     def get_tag(tag):
         m = re.search(f"### {tag}(.*?)###", text, re.DOTALL)
@@ -322,21 +313,45 @@ def create_decision_doc(text):
         r = table.add_row()
         p_lbl = r.cells[0].paragraphs[0]
         p_lbl.add_run(label).bold = True
-        p_lbl.alignment = WD_ALIGN_PARAGRAPH.LEFT # Label à esquerda
+        p_lbl.alignment = WD_ALIGN_PARAGRAPH.LEFT
         
         p_val = r.cells[1].paragraphs[0]
         p_val.text = val
-        p_val.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY # Valor justificado
+        p_val.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         return r
 
     def add_full_text(header, content):
+        """
+        Adiciona texto longo garantindo parágrafos separados dentro da célula
+        para melhor legibilidade.
+        """
         add_merged_header(header)
         r = table.add_row()
         c = r.cells[0]
         c.merge(r.cells[1])
-        p = c.paragraphs[0]
-        p.text = content
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY # Justificado
+        
+        # Limpa o parágrafo inicial vazio da célula
+        cell_p = c.paragraphs[0]
+        cell_p.clear() 
+        
+        # Parte o conteúdo por quebras de linha e cria parágrafos reais
+        # Se houver \n\n, cria novo parágrafo.
+        paragraphs = content.split('\n')
+        
+        first = True
+        for para_text in paragraphs:
+            para_text = para_text.strip()
+            if not para_text: continue
+            
+            if first:
+                p = cell_p # Usa o primeiro parágrafo já existente
+                first = False
+            else:
+                p = c.add_paragraph() # Cria novos parágrafos para o resto
+            
+            p.text = para_text
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            p.paragraph_format.space_after = Pt(12) # Força separação visual
 
     # Tabela
     add_merged_header("Identificação")
@@ -352,9 +367,9 @@ def create_decision_doc(text):
     add_full_text("Breve descrição do projeto", get_tag("CAMPO_DESCRICAO"))
 
     add_merged_header("Fundamentação da decisão")
-    add_row("Caraterísticas do projeto", get_tag("CAMPO_CARATERISTICAS"))
-    add_row("Localização do projeto", get_tag("CAMPO_LOCALIZACAO_PROJETO"))
-    add_row("Impactes Potenciais", get_tag("CAMPO_IMPACTES"))
+    add_full_text("Caraterísticas do projeto", get_tag("CAMPO_CARATERISTICAS"))
+    add_full_text("Localização do projeto", get_tag("CAMPO_LOCALIZACAO_PROJETO"))
+    add_full_text("Impactes Potenciais", get_tag("CAMPO_IMPACTES"))
 
     add_merged_header("Decisão")
     r = table.add_row()
@@ -400,7 +415,7 @@ st.markdown("---")
 if st.button("🚀 Processar com Rigor Jurídico", type="primary", use_container_width=True):
     if not (files_sim and files_form and files_doc):
         st.error("Carregue todos os documentos.")
-    elif not st.secrets.get("GOOGLE_API_KEY") and not api_key: # Verifica ambas as fontes
+    elif not st.secrets.get("GOOGLE_API_KEY") and not api_key:
         st.error("Chave API em falta.")
     else:
         with st.status("⚙️ A processar...", expanded=True) as status:
@@ -420,4 +435,4 @@ if st.session_state.validation_result and st.session_state.decision_result:
     f_val = create_validation_doc(st.session_state.validation_result)
     c1.download_button("📄 Relatório Auditoria (Justificado + Links)", f_val.getvalue(), "Relatorio_Auditoria.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     f_dec = create_decision_doc(st.session_state.decision_result)
-    c2.download_button("📝 Minuta Decisão (Justificado)", f_dec.getvalue(), "Proposta_Decisao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
+    c2.download_button("📝 Minuta Decisão (Formatada)", f_dec.getvalue(), "Proposta_Decisao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
