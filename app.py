@@ -155,20 +155,50 @@ def append_legislation_section(doc):
 # ==========================================
 
 def extract_text(files, label):
-    """Extrai texto de PDFs de forma segura."""
+    """
+    Extrai texto de PDFs de forma robusta, convertendo para BytesIO
+    para evitar erros de leitura de stream do Streamlit.
+    """
     text = ""
-    if not files: return "" # Proteção contra None/Lista vazia
+    if not files: return "" 
     
     for f in files:
         try:
-            r = PdfReader(f)
-            text += f"\n\n>>> FONTE: {label} ({f.name}) <<<\n" 
+            # 1. TRUQUE DE SEGURANÇA: Ler o ficheiro para memória primeiro
+            # Isso resolve problemas onde o Streamlit entrega o ficheiro "aberto" de forma incorreta
+            f.seek(0)
+            bytes_data = f.read()
+            f_stream = io.BytesIO(bytes_data)
+            
+            r = PdfReader(f_stream)
+            
+            # 2. Verificar se está encriptado (comum em D.R.)
+            if r.is_encrypted:
+                try:
+                    r.decrypt("") # Tenta desbloquear se não tiver pass real
+                except:
+                    st.warning(f"⚠️ O ficheiro '{f.name}' está protegido. A tentar forçar leitura...")
+
+            file_text = ""
+            count_pages = len(r.pages)
+            
+            # 3. Extração página a página
             for i, p in enumerate(r.pages):
-                extracted = p.extract_text()
-                if extracted:
-                    text += f"[Pág. {i+1}] {extracted}\n"
+                page_content = p.extract_text()
+                if page_content:
+                    file_text += f"[Pág. {i+1}] {page_content}\n"
+            
+            # 4. Validação se extraiu algo útil
+            if len(file_text.strip()) < 50:
+                st.warning(f"⚠️ Atenção: O ficheiro '{f.name}' parece ser uma imagem (digitalização) ou está vazio. A IA não conseguirá lê-lo adequadamente.")
+                text += f"\n[AVISO: O ficheiro {f.name} não contém texto selecionável (provável digitalização).]\n"
+            else:
+                text += f"\n\n>>> FONTE: {label} ({f.name}) <<<\n{file_text}"
+                
         except Exception as e:
-            text += f"\n[ERRO AO LER FICHEIRO {f.name}: {str(e)}]\n"
+            st.error(f"❌ Erro crítico ao ler '{f.name}': {str(e)}")
+            text += f"\n[ERRO DE LEITURA EM {f.name}: O sistema não conseguiu processar este ficheiro.]\n"
+            
     return text
 
 def get_ai(prompt):
@@ -209,7 +239,7 @@ def analyze_validation(t_sim, t_form, t_proj, t_leg):
     TAREFA:
     1. Audita a consistência dos dados (Áreas, Toneladas, LER).
     2. Verifica o enquadramento legal RJAIA.
-    3. CRUZAMENTO: Verifica compatibilidade com 'CONTEXTO LEGAL ESPECÍFICO' se existir.
+    3. CRUZAMENTO: Verifica compatibilidade com 'CONTEXTO LEGAL ESPECÍFICO' se existir (ex: índices do PDM, interdições de uso).
     
     OUTPUT (Markdown):
     1. "STATUS: [VALIDADO ou INCONSISTENTE]"
@@ -250,7 +280,7 @@ def generate_decision_text(t_sim, t_form, t_proj, t_leg):
     (Fundamentação técnica quantificada)
     
     ### CAMPO_LOCALIZACAO_PROJETO
-    (Compatibilidade com PDM/REN/RAN. Cita 'LEGISLAÇÃO ESPECÍFICA' se aplicável.)
+    (Compatibilidade com PDM/REN/RAN. Cita especificamente 'LEGISLAÇÃO ESPECÍFICA' se aplicável.)
     
     ### CAMPO_IMPACTES
     (Descritores ambientais)
@@ -486,3 +516,4 @@ if st.session_state.validation_result and st.session_state.decision_result:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
         type="primary"
     )
+
